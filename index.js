@@ -267,6 +267,61 @@ async function run() {
       res.send({ users, menuItems, orders, revenue });
     });
 
+    /**
+     * --------------------------------
+     *      NON-EFFICIENT WAY
+     * --------------------------------
+     * 1. load all the payments
+     * 2. for everyItemIds (which is an array), go find the item from menu collection
+     * 3. for every item in the menu collection that you found from a payment entry(document)
+     */
+
+    // using aggregate pipeline
+    app.get("/order-stats", verifyToken, verifyAdmin, async (req, res) => {
+      const result = await paymentsCollection
+        .aggregate([
+          {
+            $unwind: "$menuItemIds",
+          },
+          {
+            $project: { menuItemId: { $toObjectId: "$menuItemIds" } },
+          },
+
+          {
+            $lookup: {
+              from: "menu",
+              localField: "menuItemId",
+              foreignField: "_id",
+              as: "menuItems",
+            },
+          },
+          {
+            $unwind: "$menuItems",
+          },
+          {
+            $group: {
+              _id: "$menuItems.category",
+              quantity: {
+                $sum: 1,
+              },
+              revenue: {
+                $sum: "$menuItems.price",
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0, // exclude this _id field
+              category: "$_id", //rename _id to category
+              quantity: "$quantity", //rename quantity field
+              revenue: "$revenue",
+            },
+          },
+        ])
+        .toArray();
+      res.send(result);
+    });
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
